@@ -23,6 +23,7 @@
 	let watchFolderForNewPhotos: boolean = $state(
 		untrack(() => initialSettings.watchFolderForNewPhotos)
 	);
+	let crawlSubfolders: boolean = $state(untrack(() => initialSettings.crawlSubfolders));
 
 	// ── Layer state ─────────────────────────────────────────────────────────────
 	let layerA: HTMLDivElement | null = $state(null);
@@ -82,17 +83,31 @@
 	async function scanForNewImages() {
 		if (!watchFolderForNewPhotos || !folderHandle) return;
 		const knownNames = new Set(images.map((img) => img.name));
-		const newEntries: ImageEntry[] = [];
-		try {
-			for await (const [name, handle] of folderHandle.entries()) {
-				if (handle.kind !== 'file' || knownNames.has(name) || !isImageName(name)) continue;
-				const file = await handle.getFile();
-				if (IMAGE_TYPES.includes(file.type) || !file.type) {
-					const url = URL.createObjectURL(file);
-					watchedImageUrls.add(url);
-					newEntries.push({ name, url });
+		async function collectNewEntries(
+			dirHandle: FileSystemDirectoryHandle,
+			includeSubfolders: boolean,
+			parentPath = ''
+		): Promise<ImageEntry[]> {
+			const newEntries: ImageEntry[] = [];
+			for await (const [name, handle] of dirHandle.entries()) {
+				const relativeName = parentPath ? `${parentPath}/${name}` : name;
+				if (handle.kind === 'file') {
+					if (knownNames.has(relativeName) || !isImageName(name)) continue;
+					const file = await handle.getFile();
+					if (IMAGE_TYPES.includes(file.type) || !file.type) {
+						const url = URL.createObjectURL(file);
+						watchedImageUrls.add(url);
+						knownNames.add(relativeName);
+						newEntries.push({ name: relativeName, url });
+					}
+				} else if (includeSubfolders) {
+					newEntries.push(...(await collectNewEntries(handle, includeSubfolders, relativeName)));
 				}
 			}
+			return newEntries;
+		}
+		try {
+			const newEntries = await collectNewEntries(folderHandle, crawlSubfolders);
 			mergeImagesWithCurrentRotation(newEntries);
 		} catch {
 			// Folder access may fail due to revoked permissions; keep slideshow running.
@@ -676,6 +691,34 @@
 					>
 						<span
 							class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-neutral-900 shadow transition-transform {watchFolderForNewPhotos
+								? 'translate-x-5'
+								: 'translate-x-0'}"
+						></span>
+					</button>
+				</div>
+
+				<!-- Crawl subfolders -->
+				<div class="flex items-center justify-between">
+					<div class="space-y-1">
+						<span class="text-xs font-medium tracking-widest text-white/40 uppercase"
+							>Crawl subfolders</span
+						>
+						{#if !folderHandle}
+							<p class="text-[11px] text-white/35">Unavailable for fallback file selection.</p>
+						{/if}
+					</div>
+					<button
+						aria-label="Toggle crawl subfolders"
+						onclick={() => (crawlSubfolders = !crawlSubfolders)}
+						disabled={!folderHandle}
+						class="relative h-6 w-11 rounded-full transition-colors {crawlSubfolders
+							? 'bg-white'
+							: 'bg-white/20'} disabled:cursor-not-allowed disabled:opacity-40"
+						role="switch"
+						aria-checked={crawlSubfolders}
+					>
+						<span
+							class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-neutral-900 shadow transition-transform {crawlSubfolders
 								? 'translate-x-5'
 								: 'translate-x-0'}"
 						></span>

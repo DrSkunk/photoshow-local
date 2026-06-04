@@ -21,6 +21,7 @@
 	let transitionDuration: number = $state(untrack(() => settings.transitionDuration));
 	let blurBackground: boolean = $state(untrack(() => settings.blurBackground));
 	let watchFolderForNewPhotos: boolean = $state(untrack(() => settings.watchFolderForNewPhotos));
+	let crawlSubfolders: boolean = $state(untrack(() => settings.crawlSubfolders));
 	let error: string = $state('');
 	let loading: boolean = $state(false);
 	let savedHandle: FileSystemDirectoryHandle | null = $state(null);
@@ -56,18 +57,30 @@
 		}
 	});
 
-	async function loadFromHandle(dirHandle: FileSystemDirectoryHandle) {
-		loading = true;
-		error = '';
+	async function collectDirectoryImages(
+		dirHandle: FileSystemDirectoryHandle,
+		includeSubfolders: boolean,
+		parentPath = ''
+	): Promise<ImageEntry[]> {
 		const entries: ImageEntry[] = [];
 		for await (const [name, handle] of dirHandle.entries()) {
+			const relativeName = parentPath ? `${parentPath}/${name}` : name;
 			if (handle.kind === 'file') {
 				const file = await handle.getFile();
 				if (IMAGE_TYPES.includes(file.type) || /\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(name)) {
-					entries.push({ name, url: URL.createObjectURL(file) });
+					entries.push({ name: relativeName, url: URL.createObjectURL(file) });
 				}
+			} else if (includeSubfolders) {
+				entries.push(...(await collectDirectoryImages(handle, includeSubfolders, relativeName)));
 			}
 		}
+		return entries;
+	}
+
+	async function loadFromHandle(dirHandle: FileSystemDirectoryHandle) {
+		loading = true;
+		error = '';
+		const entries = await collectDirectoryImages(dirHandle, crawlSubfolders);
 		loading = false;
 		if (entries.length === 0) {
 			error = 'No images found in that folder.';
@@ -82,7 +95,8 @@
 				displayDuration,
 				transitionDuration,
 				blurBackground,
-				watchFolderForNewPhotos
+				watchFolderForNewPhotos,
+				crawlSubfolders
 			},
 			dirHandle
 		);
@@ -115,9 +129,12 @@
 		try {
 			const entries: ImageEntry[] = [];
 			for (const file of Array.from(files)) {
+				const relativePath = file.webkitRelativePath || file.name;
+				if (!crawlSubfolders && relativePath.includes('/')) continue;
 				const filename = file.name;
+				const entryName = crawlSubfolders ? relativePath : filename;
 				if (IMAGE_TYPES.includes(file.type) || /\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(filename)) {
-					entries.push({ name: filename, url: URL.createObjectURL(file) });
+					entries.push({ name: entryName, url: URL.createObjectURL(file) });
 				}
 			}
 
@@ -135,7 +152,8 @@
 					displayDuration,
 					transitionDuration,
 					blurBackground,
-					watchFolderForNewPhotos
+					watchFolderForNewPhotos,
+					crawlSubfolders
 				},
 				null
 			);
@@ -399,6 +417,31 @@
 				>
 					<span
 						class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-neutral-950 shadow transition-transform {watchFolderForNewPhotos
+							? 'translate-x-5'
+							: 'translate-x-0'}"
+					></span>
+				</button>
+			</div>
+
+			<!-- Crawl subfolders -->
+			<div class="flex items-center justify-between">
+				<div class="space-y-1">
+					<span class="text-xs font-medium tracking-widest text-white/40 uppercase"
+						>Crawl subfolders</span
+					>
+					<p class="text-[11px] text-white/35">Include images from nested folders.</p>
+				</div>
+				<button
+					aria-label="Toggle crawl subfolders"
+					onclick={() => (crawlSubfolders = !crawlSubfolders)}
+					class="relative h-6 w-11 rounded-full transition-colors {crawlSubfolders
+						? 'bg-white'
+						: 'bg-white/20'}"
+					role="switch"
+					aria-checked={crawlSubfolders}
+				>
+					<span
+						class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-neutral-950 shadow transition-transform {crawlSubfolders
 							? 'translate-x-5'
 							: 'translate-x-0'}"
 					></span>

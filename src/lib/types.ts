@@ -8,6 +8,7 @@ export interface Settings {
 	transitionDuration: number; // seconds
 	blurBackground: boolean;
 	watchFolderForNewPhotos: boolean;
+	crawlSubfolders: boolean;
 }
 
 export interface ImageEntry {
@@ -21,5 +22,6 @@ export const DEFAULT_SETTINGS: Settings = {
 	displayDuration: 6,
 	transitionDuration: 1.5,
 	blurBackground: true,
-	watchFolderForNewPhotos: false
+	watchFolderForNewPhotos: false,
+	crawlSubfolders: false
 };

@@ -22,6 +22,6 @@ export const DEFAULT_SETTINGS: Settings = {
 	displayDuration: 6,
 	transitionDuration: 1.5,
 	blurBackground: true,
-	watchFolderForNewPhotos: false,
-	crawlSubfolders: false
+	watchFolderForNewPhotos: true,
+	crawlSubfolders: true
 };

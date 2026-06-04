@@ -6,12 +6,14 @@
 		images,
 		settings: initialSettings,
 		folderHandle,
-		onexit
+		onexit,
+		onsettingschange
 	}: {
 		images: ImageEntry[];
 		settings: Settings;
 		folderHandle: FileSystemDirectoryHandle | null;
 		onexit: () => void;
+		onsettingschange: (settings: Settings) => void;
 	} = $props();
 
 	// ── Mutable settings (changed live from in-slideshow panel) ─────────────────
@@ -80,10 +82,36 @@
 		if (nextCurrentIndex >= 0) currentIndex = nextCurrentIndex;
 	}
 
+	function removeMissingImages(validNames: Set<string>) {
+		if (validNames.size === 0) {
+			images = [];
+			currentIndex = 0;
+			onexit();
+			return;
+		}
+
+		const currentImage = images[currentIndex];
+		const filtered = images.filter((img) => validNames.has(img.name));
+		if (filtered.length === images.length) return;
+		images = filtered;
+		if (images.length === 0) {
+			currentIndex = 0;
+			onexit();
+			return;
+		}
+		if (!currentImage || !validNames.has(currentImage.name)) {
+			currentIndex = Math.min(currentIndex, images.length - 1);
+			return;
+		}
+		const nextCurrentIndex = images.findIndex((img) => img.name === currentImage.name);
+		currentIndex = nextCurrentIndex >= 0 ? nextCurrentIndex : Math.min(currentIndex, images.length - 1);
+	}
+
 	async function scanForNewImages() {
 		if (!watchFolderForNewPhotos || !folderHandle) return;
 		const knownNames = new Set(images.map((img) => img.name));
 		const pendingNames = new Set<string>();
+		const scannedNames = new Set<string>();
 		async function collectNewEntries(
 			dirHandle: FileSystemDirectoryHandle,
 			includeSubfolders: boolean,
@@ -93,8 +121,9 @@
 			for await (const [name, handle] of dirHandle.entries()) {
 				const relativeName = parentPath ? `${parentPath}/${name}` : name;
 				if (handle.kind === 'file') {
-					if (knownNames.has(relativeName) || pendingNames.has(relativeName) || !isImageName(name))
-						continue;
+					if (!isImageName(name)) continue;
+					scannedNames.add(relativeName);
+					if (knownNames.has(relativeName) || pendingNames.has(relativeName)) continue;
 					const file = await handle.getFile();
 					if (IMAGE_TYPES.includes(file.type) || !file.type) {
 						const url = URL.createObjectURL(file);
@@ -111,9 +140,61 @@
 		try {
 			const newEntries = await collectNewEntries(folderHandle, crawlSubfolders);
 			mergeImagesWithCurrentRotation(newEntries);
+			removeMissingImages(scannedNames);
 		} catch {
 			// Folder access may fail due to revoked permissions; keep slideshow running.
 		}
+	}
+
+	function preloadImage(url: string, targetImg: HTMLImageElement, targetBlur: HTMLImageElement | null) {
+		return new Promise<boolean>((resolve) => {
+			targetImg.onload = () => resolve(true);
+			targetImg.onerror = () => resolve(false);
+			targetImg.src = url;
+			if (targetBlur) targetBlur.src = url;
+			if (targetImg.complete && targetImg.naturalWidth > 0) resolve(true);
+		});
+	}
+
+	function dropImageAt(index: number) {
+		const removed = images[index];
+		if (!removed) return;
+		if (watchedImageUrls.has(removed.url)) {
+			URL.revokeObjectURL(removed.url);
+			watchedImageUrls.delete(removed.url);
+		}
+		const nextImages = [...images];
+		nextImages.splice(index, 1);
+		images = nextImages;
+		if (images.length === 0) {
+			currentIndex = 0;
+			onexit();
+			return;
+		}
+		if (index < currentIndex) currentIndex -= 1;
+		if (currentIndex >= images.length) currentIndex = images.length - 1;
+	}
+
+	async function resolveTransitionTarget(
+		startIndex: number,
+		step: 1 | -1,
+		targetImg: HTMLImageElement,
+		targetBlur: HTMLImageElement | null
+	): Promise<number | null> {
+		let candidateIndex = startIndex;
+		let attempts = 0;
+		while (images.length > 0 && attempts < images.length) {
+			const candidate = images[candidateIndex];
+			if (!candidate) return null;
+			const loaded = await preloadImage(candidate.url, targetImg, targetBlur);
+			if (loaded) return candidateIndex;
+			dropImageAt(candidateIndex);
+			if (images.length === 0) return null;
+			if (step > 0) candidateIndex %= images.length;
+			else candidateIndex = (candidateIndex - 1 + images.length) % images.length;
+			attempts += 1;
+		}
+		return null;
 	}
 
 	function scheduleFolderWatch(
@@ -152,7 +233,7 @@
 
 	// ── Transition ───────────────────────────────────────────────────────────────
 	async function transitionTo(nextIndex: number) {
-		if (transitionInProgress) return;
+		if (transitionInProgress || images.length === 0) return;
 		transitionInProgress = true;
 
 		const ms = transitionDuration * 1000;
@@ -167,16 +248,12 @@
 			return;
 		}
 
-		const url = images[nextIndex].url;
-
-		// Preload image
-		await new Promise<void>((res) => {
-			inImg.onload = () => res();
-			inImg.onerror = () => res();
-			inImg.src = url;
-			if (inBlur) inBlur.src = url;
-			if (inImg.complete) res();
-		});
+		const step: 1 | -1 = nextIndex === (currentIndex - 1 + images.length) % images.length ? -1 : 1;
+		const resolvedNextIndex = await resolveTransitionTarget(nextIndex, step, inImg, inBlur);
+		if (resolvedNextIndex === null) {
+			transitionInProgress = false;
+			return;
+		}
 
 		// Reset incoming layer
 		inLayer.style.transform = '';
@@ -248,7 +325,7 @@
 		inLayer.style.opacity = '1';
 		inLayer.style.transform = '';
 
-		currentIndex = nextIndex;
+		currentIndex = resolvedNextIndex;
 		activeLayer = isA ? 'B' : 'A';
 		transitionInProgress = false;
 	}
@@ -256,6 +333,7 @@
 	// ── Scheduling ───────────────────────────────────────────────────────────────
 	function scheduleNext() {
 		if (slideTimer) clearTimeout(slideTimer);
+		if (images.length <= 1) return;
 		slideTimer = setTimeout(async () => {
 			if (!paused) {
 				await transitionTo((currentIndex + 1) % images.length);
@@ -265,11 +343,13 @@
 	}
 
 	function prev() {
+		if (images.length <= 1) return;
 		if (slideTimer) clearTimeout(slideTimer);
 		transitionTo((currentIndex - 1 + images.length) % images.length).then(scheduleNext);
 	}
 
 	function next() {
+		if (images.length <= 1) return;
 		if (slideTimer) clearTimeout(slideTimer);
 		transitionTo((currentIndex + 1) % images.length).then(scheduleNext);
 	}
@@ -317,24 +397,27 @@
 
 	// ── Lifecycle ─────────────────────────────────────────────────────────────────
 	onMount(() => {
-		if (imgA && images.length > 0) {
-			const url = images[0].url;
-			imgA.src = url;
-			if (blurA) blurA.src = url;
-			if (layerA) {
-				layerA.style.opacity = '1';
-				layerA.style.zIndex = '2';
+		const initialize = async () => {
+			if (imgA && images.length > 0) {
+				const resolvedIndex = await resolveTransitionTarget(0, 1, imgA, blurA);
+				if (resolvedIndex === null) return;
+				currentIndex = resolvedIndex;
+				if (layerA) {
+					layerA.style.opacity = '1';
+					layerA.style.zIndex = '2';
+				}
+				if (layerB) layerB.style.opacity = '0';
+				if (transition === 'kenburns') {
+					const run = () => {
+						if (imgA) applyKenBurns(imgA, (displayDuration + transitionDuration) * 1000);
+					};
+					if (imgA.complete) run();
+					else imgA.onload = run;
+				}
 			}
-			if (layerB) layerB.style.opacity = '0';
-			if (transition === 'kenburns') {
-				const run = () => {
-					if (imgA) applyKenBurns(imgA, (displayDuration + transitionDuration) * 1000);
-				};
-				if (imgA.complete) run();
-				else imgA.onload = run;
-			}
-		}
-		scheduleNext();
+			scheduleNext();
+		};
+		void initialize();
 		scheduleFolderWatch(watchFolderForNewPhotos, folderHandle);
 		resetControlsTimer();
 		document.addEventListener('fullscreenchange', onFullscreenChange);
@@ -354,6 +437,18 @@
 
 	$effect(() => {
 		scheduleFolderWatch(watchFolderForNewPhotos, folderHandle);
+	});
+
+	$effect(() => {
+		onsettingschange({
+			transition,
+			order,
+			displayDuration,
+			transitionDuration,
+			blurBackground,
+			watchFolderForNewPhotos,
+			crawlSubfolders
+		});
 	});
 
 	const transitionOptions: { value: Transition; label: string }[] = [

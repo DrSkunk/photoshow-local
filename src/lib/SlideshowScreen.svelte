@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import type { ImageEntry, Settings, Transition, Order } from './types';
+	import { appLog } from './logger';
 
 	let {
 		images,
@@ -57,6 +58,7 @@
 		'image/bmp'
 	];
 	const WATCH_INTERVAL_MS = 10000;
+	const CONTROLS_HIDE_DELAY_MS = 3000;
 
 	function isImageName(name: string) {
 		return /\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(name);
@@ -68,6 +70,11 @@
 
 	function mergeImagesWithCurrentRotation(newEntries: ImageEntry[]) {
 		if (newEntries.length === 0) return;
+		appLog.info('Merging newly discovered images into slideshow', {
+			newImageCount: newEntries.length,
+			order,
+			currentImageCount: images.length
+		});
 		const currentImage = images[currentIndex];
 		if (order === 'alphabetical') {
 			images = [...images, ...newEntries].sort((a, b) => a.name.localeCompare(b.name));
@@ -84,6 +91,11 @@
 		if (!currentImage) return;
 		const nextCurrentIndex = images.indexOf(currentImage);
 		if (nextCurrentIndex >= 0) currentIndex = nextCurrentIndex;
+		appLog.info('Merge complete', {
+			totalImageCount: images.length,
+			currentIndex,
+			currentImageName: images[currentIndex]?.name ?? null
+		});
 	}
 
 	function removeMissingImages(validNames: Set<string>) {
@@ -114,6 +126,11 @@
 
 	async function scanForNewImages() {
 		if (!watchFolderForNewPhotos || !folderHandle) return;
+		appLog.debug('Scanning watched folder for new images', {
+			currentImageCount: images.length,
+			crawlSubfolders,
+			folderName: folderHandle.name
+		});
 		const knownNames = new Set(images.map((img) => img.name));
 		const pendingNames = new Set<string>();
 		const scannedNames = new Set<string>();
@@ -136,6 +153,10 @@
 					const file = await handle.getFile();
 					if (isImageFile(file, name)) {
 						const url = URL.createObjectURL(file);
+						appLog.info('Detected new watched image', {
+							relativeName,
+							fileType: file.type || 'unknown'
+						});
 						watchedImageUrls.add(url);
 						pendingNames.add(relativeName);
 						newEntries.push({ name: relativeName, url });
@@ -150,7 +171,9 @@
 			const newEntries = await collectNewEntries(folderHandle, crawlSubfolders);
 			mergeImagesWithCurrentRotation(newEntries);
 			removeMissingImages(scannedNames);
+			appLog.debug('Watched folder scan complete', { newImageCount: newEntries.length });
 		} catch {
+			appLog.warn('Watched folder scan failed; continuing slideshow');
 			// Folder access may fail due to revoked permissions; keep slideshow running.
 		}
 	}
@@ -224,8 +247,14 @@
 		handle: FileSystemDirectoryHandle | null = folderHandle
 	) {
 		if (watchTimer) clearTimeout(watchTimer);
+		appLog.debug('Scheduling folder watch', {
+			shouldWatch,
+			hasHandle: !!handle,
+			intervalMs: WATCH_INTERVAL_MS
+		});
 		if (!shouldWatch || !handle) return;
 		watchTimer = setTimeout(async () => {
+			appLog.trace('Folder watch timer tick');
 			await scanForNewImages();
 			scheduleFolderWatch(shouldWatch, handle);
 		}, WATCH_INTERVAL_MS);
@@ -237,6 +266,7 @@
 	}
 
 	function applyKenBurns(el: HTMLImageElement, durationMs: number) {
+		appLog.trace('Applying Ken Burns effect', { durationMs });
 		el.getAnimations().forEach((a) => a.cancel());
 		const s1 = randomBetween(1.05, 1.18);
 		const s2 = randomBetween(1.05, 1.18);
@@ -257,6 +287,12 @@
 	async function transitionTo(nextIndex: number) {
 		if (transitionInProgress || images.length === 0) return;
 		transitionInProgress = true;
+		appLog.info('Starting slide transition', {
+			fromIndex: currentIndex,
+			toIndex: nextIndex,
+			transition,
+			transitionDuration
+		});
 
 		const ms = transitionDuration * 1000;
 		const isA = activeLayer === 'A';
@@ -266,6 +302,7 @@
 		const inBlur = isA ? blurB : blurA;
 
 		if (!outLayer || !inLayer || !inImg) {
+			appLog.warn('Transition aborted due to missing layer references');
 			transitionInProgress = false;
 			return;
 		}
@@ -350,12 +387,22 @@
 		currentIndex = resolvedNextIndex;
 		activeLayer = isA ? 'B' : 'A';
 		transitionInProgress = false;
+		appLog.info('Slide transition complete', {
+			currentIndex,
+			activeLayer,
+			currentImageName: images[currentIndex]?.name ?? null
+		});
 	}
 
 	// ── Scheduling ───────────────────────────────────────────────────────────────
 	function scheduleNext() {
 		if (slideTimer) clearTimeout(slideTimer);
 		if (images.length <= 1) return;
+		appLog.debug('Scheduling next slide', {
+			currentIndex,
+			displayDuration,
+			paused
+		});
 		slideTimer = setTimeout(async () => {
 			if (!paused) {
 				await transitionTo((currentIndex + 1) % images.length);
@@ -366,24 +413,30 @@
 
 	function prev() {
 		if (images.length <= 1) return;
+		appLog.info('Manual previous slide requested', { currentIndex });
 		if (slideTimer) clearTimeout(slideTimer);
 		transitionTo((currentIndex - 1 + images.length) % images.length).then(scheduleNext);
 	}
 
 	function next() {
 		if (images.length <= 1) return;
+		appLog.info('Manual next slide requested', { currentIndex });
 		if (slideTimer) clearTimeout(slideTimer);
 		transitionTo((currentIndex + 1) % images.length).then(scheduleNext);
 	}
 
 	function togglePause() {
 		paused = !paused;
+		appLog.info('Pause state toggled', { paused, currentIndex });
 		if (!paused) scheduleNext();
 		else if (slideTimer) clearTimeout(slideTimer);
 	}
 
 	// ── Fullscreen ───────────────────────────────────────────────────────────────
 	function toggleFullscreen() {
+		appLog.info('Fullscreen toggle requested', {
+			currentlyFullscreen: !!document.fullscreenElement
+		});
 		if (document.fullscreenElement) {
 			document.exitFullscreen();
 		} else {
@@ -393,18 +446,25 @@
 
 	function onFullscreenChange() {
 		isFullscreen = !!document.fullscreenElement;
+		appLog.info('Fullscreen state changed', { isFullscreen });
 	}
 
 	// ── Controls hide ─────────────────────────────────────────────────────────────
 	function resetControlsTimer() {
 		showControls = true;
 		if (controlsTimer) clearTimeout(controlsTimer);
+		appLog.trace('Resetting controls visibility timer', {
+			hideDelayMs: CONTROLS_HIDE_DELAY_MS,
+			showSettings
+		});
 		controlsTimer = setTimeout(() => {
 			if (!showSettings) showControls = false;
-		}, 3000);
+			appLog.trace('Controls auto-hide timer fired', { showControls });
+		}, CONTROLS_HIDE_DELAY_MS);
 	}
 
 	function handleKey(e: KeyboardEvent) {
+		appLog.debug('Keyboard input received', { key: e.key });
 		if (e.key === 'ArrowLeft') prev();
 		else if (e.key === 'ArrowRight') next();
 		else if (e.key === ' ') {
@@ -419,6 +479,17 @@
 
 	// ── Lifecycle ─────────────────────────────────────────────────────────────────
 	onMount(() => {
+		appLog.info('Slideshow mounted', {
+			imageCount: images.length,
+			initialTransition: transition,
+			initialOrder: order,
+			displayDuration,
+			transitionDuration,
+			blurBackground,
+			watchFolderForNewPhotos,
+			crawlSubfolders,
+			folderName: folderHandle?.name ?? null
+		});
 		const initialize = async () => {
 			if (imgA && images.length > 0) {
 				const resolvedIndex = await resolveTransitionTarget(0, 1, imgA, blurA);
@@ -436,8 +507,8 @@
 					if (imgA.complete) run();
 					else imgA.onload = run;
 				}
+				scheduleNext();
 			}
-			scheduleNext();
 		};
 		void initialize();
 		scheduleFolderWatch(watchFolderForNewPhotos, folderHandle);
@@ -446,6 +517,9 @@
 	});
 
 	onDestroy(() => {
+		appLog.info('Slideshow destroyed; clearing timers and object URLs', {
+			watchedUrlCount: watchedImageUrls.size
+		});
 		if (slideTimer) clearTimeout(slideTimer);
 		if (controlsTimer) clearTimeout(controlsTimer);
 		if (watchTimer) clearTimeout(watchTimer);
@@ -458,10 +532,23 @@
 	});
 
 	$effect(() => {
+		appLog.debug('Folder watch effect triggered', {
+			watchFolderForNewPhotos,
+			hasFolderHandle: !!folderHandle
+		});
 		scheduleFolderWatch(watchFolderForNewPhotos, folderHandle);
 	});
 
 	$effect(() => {
+		appLog.info('Slideshow settings updated', {
+			transition,
+			order,
+			displayDuration,
+			transitionDuration,
+			blurBackground,
+			watchFolderForNewPhotos,
+			crawlSubfolders
+		});
 		onsettingschange({
 			transition,
 			order,

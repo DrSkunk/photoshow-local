@@ -8,7 +8,7 @@
 	<title>PhotoShow</title>
 	<meta name="theme-color" content="#0f172a" />
 	<link rel="manifest" href="/manifest.webmanifest" />
-	<link rel="apple-touch-icon" href="/icon.svg" />
+	<link rel="apple-touch-icon" href="/icon-192x192.png" />
 </svelte:head>
 
 {@render children()}

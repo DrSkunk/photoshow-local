@@ -48,6 +48,7 @@
 
 	onMount(async () => {
 		supportsDirectoryPicker = 'showDirectoryPicker' in window;
+		if (!supportsDirectoryPicker) watchFolderForNewPhotos = false;
 		try {
 			savedHandle = await loadHandle();
 		} catch {
@@ -134,7 +135,7 @@
 					displayDuration,
 					transitionDuration,
 					blurBackground,
-					watchFolderForNewPhotos: false
+					watchFolderForNewPhotos
 				},
 				null
 			);
@@ -381,7 +382,9 @@
 						>Watch folder for new photos</span
 					>
 					{#if !supportsDirectoryPicker}
-						<p class="text-[11px] text-white/35">Requires selecting a folder via the folder picker.</p>
+						<p class="text-[11px] text-white/35">
+							Requires selecting a folder via the folder picker.
+						</p>
 					{/if}
 				</div>
 				<button

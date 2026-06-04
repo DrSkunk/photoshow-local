@@ -30,3 +30,12 @@ npm run preview
 ```
 
 > Deploying requires an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment. For static hosting use `@sveltejs/adapter-static`.
+
+## Tauri CI/CD
+
+A GitHub Actions workflow is included at `/tmp/workspace/DrSkunk/photoshow-local/.github/workflows/tauri-ci-cd.yml` to build standalone Tauri bundles for:
+
+- Windows
+- macOS
+
+The workflow runs on pull requests and pushes to `main`, and it also publishes bundled binaries as GitHub Release assets when a tag matching `v*` is pushed.

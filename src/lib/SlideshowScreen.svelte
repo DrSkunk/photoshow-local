@@ -20,7 +20,9 @@
 	let displayDuration: number = $state(untrack(() => initialSettings.displayDuration));
 	let transitionDuration: number = $state(untrack(() => initialSettings.transitionDuration));
 	let blurBackground: boolean = $state(untrack(() => initialSettings.blurBackground));
-	let watchFolderForNewPhotos: boolean = $state(untrack(() => initialSettings.watchFolderForNewPhotos));
+	let watchFolderForNewPhotos: boolean = $state(
+		untrack(() => initialSettings.watchFolderForNewPhotos)
+	);
 
 	// ── Layer state ─────────────────────────────────────────────────────────────
 	let layerA: HTMLDivElement | null = $state(null);
@@ -41,6 +43,7 @@
 	let slideTimer: ReturnType<typeof setTimeout> | null = null;
 	let watchTimer: ReturnType<typeof setTimeout> | null = null;
 	let transitionInProgress = false;
+	const watchedImageUrls = new Set<string>();
 
 	const IMAGE_TYPES = [
 		'image/jpeg',
@@ -84,8 +87,10 @@
 			for await (const [name, handle] of folderHandle.entries()) {
 				if (handle.kind !== 'file' || knownNames.has(name) || !isImageName(name)) continue;
 				const file = await handle.getFile();
-				if (IMAGE_TYPES.includes(file.type) || isImageName(name)) {
-					newEntries.push({ name, url: URL.createObjectURL(file) });
+				if (IMAGE_TYPES.includes(file.type) || !file.type) {
+					const url = URL.createObjectURL(file);
+					watchedImageUrls.add(url);
+					newEntries.push({ name, url });
 				}
 			}
 			mergeImagesWithCurrentRotation(newEntries);
@@ -94,12 +99,15 @@
 		}
 	}
 
-	function scheduleFolderWatch() {
+	function scheduleFolderWatch(
+		shouldWatch: boolean = watchFolderForNewPhotos,
+		handle: FileSystemDirectoryHandle | null = folderHandle
+	) {
 		if (watchTimer) clearTimeout(watchTimer);
-		if (!watchFolderForNewPhotos || !folderHandle) return;
+		if (!shouldWatch || !handle) return;
 		watchTimer = setTimeout(async () => {
 			await scanForNewImages();
-			scheduleFolderWatch();
+			scheduleFolderWatch(shouldWatch, handle);
 		}, WATCH_INTERVAL_MS);
 	}
 
@@ -310,7 +318,7 @@
 			}
 		}
 		scheduleNext();
-		scheduleFolderWatch();
+		scheduleFolderWatch(watchFolderForNewPhotos, folderHandle);
 		resetControlsTimer();
 		document.addEventListener('fullscreenchange', onFullscreenChange);
 	});
@@ -319,14 +327,16 @@
 		if (slideTimer) clearTimeout(slideTimer);
 		if (controlsTimer) clearTimeout(controlsTimer);
 		if (watchTimer) clearTimeout(watchTimer);
+		for (const url of watchedImageUrls) {
+			URL.revokeObjectURL(url);
+		}
+		watchedImageUrls.clear();
 		document.removeEventListener('fullscreenchange', onFullscreenChange);
 		if (document.fullscreenElement) document.exitFullscreen();
 	});
 
 	$effect(() => {
-		watchFolderForNewPhotos;
-		folderHandle;
-		scheduleFolderWatch();
+		scheduleFolderWatch(watchFolderForNewPhotos, folderHandle);
 	});
 
 	const transitionOptions: { value: Transition; label: string }[] = [

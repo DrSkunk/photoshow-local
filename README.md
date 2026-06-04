@@ -33,7 +33,7 @@ npm run preview
 
 ## Tauri CI/CD
 
-A GitHub Actions workflow is included at `/tmp/workspace/DrSkunk/photoshow-local/.github/workflows/tauri-ci-cd.yml` to build standalone Tauri bundles for:
+A GitHub Actions workflow is included at `.github/workflows/tauri-ci-cd.yml` to build standalone Tauri bundles for:
 
 - Windows
 - macOS

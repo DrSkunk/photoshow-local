@@ -130,9 +130,15 @@
 			const entries: ImageEntry[] = [];
 			for (const file of Array.from(files)) {
 				const relativePath = file.webkitRelativePath || file.name;
-				if (!crawlSubfolders && relativePath.includes('/')) continue;
+				const pathParts = relativePath.split('/').filter(Boolean);
+				const isNestedFile = pathParts.length > 2;
+				if (!crawlSubfolders && isNestedFile) continue;
 				const filename = file.name;
-				const entryName = crawlSubfolders ? relativePath : filename;
+				const entryName = crawlSubfolders
+					? pathParts.length > 1
+						? pathParts.slice(1).join('/')
+						: filename
+					: filename;
 				if (IMAGE_TYPES.includes(file.type) || /\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(filename)) {
 					entries.push({ name: entryName, url: URL.createObjectURL(file) });
 				}

@@ -83,6 +83,7 @@
 	async function scanForNewImages() {
 		if (!watchFolderForNewPhotos || !folderHandle) return;
 		const knownNames = new Set(images.map((img) => img.name));
+		const pendingNames = new Set<string>();
 		async function collectNewEntries(
 			dirHandle: FileSystemDirectoryHandle,
 			includeSubfolders: boolean,
@@ -92,12 +93,13 @@
 			for await (const [name, handle] of dirHandle.entries()) {
 				const relativeName = parentPath ? `${parentPath}/${name}` : name;
 				if (handle.kind === 'file') {
-					if (knownNames.has(relativeName) || !isImageName(name)) continue;
+					if (knownNames.has(relativeName) || pendingNames.has(relativeName) || !isImageName(name))
+						continue;
 					const file = await handle.getFile();
 					if (IMAGE_TYPES.includes(file.type) || !file.type) {
 						const url = URL.createObjectURL(file);
 						watchedImageUrls.add(url);
-						knownNames.add(relativeName);
+						pendingNames.add(relativeName);
 						newEntries.push({ name: relativeName, url });
 					}
 				} else if (includeSubfolders) {

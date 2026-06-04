@@ -39,3 +39,26 @@ A GitHub Actions workflow is included at `.github/workflows/tauri-ci-cd.yml` to 
 - macOS
 
 The workflow runs on pull requests and pushes to `main`, and it also publishes bundled binaries as GitHub Release assets when a tag matching `v*` is pushed.
+
+## Running the unsigned macOS app
+
+The macOS artifacts produced by CI are unsigned and not notarized. That means Gatekeeper may block the app with a message such as "PhotoShow.app is damaged" or warn that Apple cannot verify it.
+
+To run it anyway:
+
+1. Download the release DMG and drag `PhotoShow.app` into `/Applications`.
+2. Open Terminal and remove the quarantine attribute:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/PhotoShow.app
+```
+
+3. Launch the app from `/Applications`.
+
+If macOS still blocks it, use Finder once:
+
+1. In Finder, open `/Applications`.
+2. Control-click `PhotoShow.app` and choose `Open`.
+3. Confirm the dialog.
+
+This bypass is per build. Each newly downloaded unsigned release may need the same steps.

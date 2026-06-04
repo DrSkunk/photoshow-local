@@ -19,6 +19,7 @@
 	let error: string = $state('');
 	let loading: boolean = $state(false);
 	let savedHandle: FileSystemDirectoryHandle | null = $state(null);
+	let folderInput: HTMLInputElement | null = $state(null);
 
 	const IMAGE_TYPES = [
 		'image/jpeg',
@@ -85,10 +86,38 @@
 		}
 	}
 
+	async function onFolderFilesSelected(event: Event) {
+		const input = event.currentTarget as HTMLInputElement | null;
+		const files = input?.files;
+		if (!files || files.length === 0) return;
+
+		loading = true;
+		error = '';
+		try {
+			const entries: ImageEntry[] = [];
+			for (const file of Array.from(files)) {
+				const filename = file.name;
+				if (IMAGE_TYPES.includes(file.type) || /\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(filename)) {
+					entries.push({ name: filename, url: URL.createObjectURL(file) });
+				}
+			}
+
+			if (entries.length === 0) {
+				error = 'No images found in that folder.';
+				return;
+			}
+
+			const sorted = sortImages(entries, order);
+			onstart(sorted, { transition, order, displayDuration, transitionDuration, blurBackground });
+		} finally {
+			loading = false;
+		}
+	}
+
 	async function pickFolder() {
 		error = '';
 		if (!('showDirectoryPicker' in window)) {
-			error = 'Your browser does not support the File System Access API. Use Chrome or Edge.';
+			folderInput?.click();
 			return;
 		}
 		try {
@@ -142,6 +171,16 @@
 
 		<!-- Folder picker -->
 		<div class="flex flex-col items-center gap-3">
+			<input
+				bind:this={folderInput}
+				type="file"
+				accept="image/*"
+				multiple
+				webkitdirectory
+				class="hidden"
+				onchange={onFolderFilesSelected}
+			/>
+
 			<!-- Reopen last folder -->
 			{#if savedHandle}
 				<button

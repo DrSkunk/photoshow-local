@@ -6,7 +6,8 @@
 
 	let {
 		settings,
-		onstart
+		onstart,
+		onsettingschange
 	}: {
 		settings: Settings;
 		onstart: (
@@ -14,6 +15,7 @@
 			settings: Settings,
 			folderHandle: FileSystemDirectoryHandle | null
 		) => void;
+		onsettingschange: (settings: Settings) => void;
 	} = $props();
 
 	let transition: Transition = $state(untrack(() => settings.transition));
@@ -66,6 +68,15 @@
 
 	$effect(() => {
 		appLog.info('Setup settings updated', {
+			transition,
+			order,
+			displayDuration,
+			transitionDuration,
+			blurBackground,
+			watchFolderForNewPhotos,
+			crawlSubfolders
+		});
+		onsettingschange({
 			transition,
 			order,
 			displayDuration,

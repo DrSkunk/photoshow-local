@@ -14,8 +14,8 @@ pub fn run() {
           .build(),
       )?;
 
-      log::info!("PhotoShow Tauri app setup complete");
       log::info!("Logging initialized");
+      log::info!("PhotoShow Tauri app setup complete");
       Ok(())
     })
     .run(tauri::generate_context!())

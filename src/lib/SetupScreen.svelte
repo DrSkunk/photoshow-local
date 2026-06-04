@@ -58,22 +58,22 @@
 				hasSavedHandle: !!savedHandle,
 				folderName: savedHandle?.name ?? null
 			});
-
-			$effect(() => {
-				appLog.info('Setup settings updated', {
-					transition,
-					order,
-					displayDuration,
-					transitionDuration,
-					blurBackground,
-					watchFolderForNewPhotos,
-					crawlSubfolders
-				});
-			});
 		} catch {
 			appLog.warn('Setup could not load saved folder handle');
 			// IndexedDB unavailable; ignore
 		}
+	});
+
+	$effect(() => {
+		appLog.info('Setup settings updated', {
+			transition,
+			order,
+			displayDuration,
+			transitionDuration,
+			blurBackground,
+			watchFolderForNewPhotos,
+			crawlSubfolders
+		});
 	});
 
 	async function collectDirectoryImages(
@@ -266,8 +266,8 @@
 				window as { showDirectoryPicker: (opts: object) => Promise<FileSystemDirectoryHandle> }
 			).showDirectoryPicker({ mode: 'read' });
 			appLog.info('Directory picker returned handle', { folderName: dirHandle.name });
-			await saveHandle(dirHandle).catch((saveError: unknown) => {
-				appLog.warn('Failed to persist selected folder handle', { saveError });
+			await saveHandle(dirHandle).catch((err: unknown) => {
+				appLog.warn('Failed to persist selected folder handle', { err });
 			});
 			savedHandle = dirHandle;
 			await loadFromHandle(dirHandle);

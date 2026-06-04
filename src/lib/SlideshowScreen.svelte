@@ -56,6 +56,7 @@
 		'image/bmp'
 	];
 	const WATCH_INTERVAL_MS = 10000;
+	const CONTROLS_HIDE_DELAY_MS = 3000;
 
 	function isImageName(name: string) {
 		return /\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(name);
@@ -143,7 +144,11 @@
 		handle: FileSystemDirectoryHandle | null = folderHandle
 	) {
 		if (watchTimer) clearTimeout(watchTimer);
-		appLog.debug('Scheduling folder watch', { shouldWatch, hasHandle: !!handle, intervalMs: WATCH_INTERVAL_MS });
+		appLog.debug('Scheduling folder watch', {
+			shouldWatch,
+			hasHandle: !!handle,
+			intervalMs: WATCH_INTERVAL_MS
+		});
 		if (!shouldWatch || !handle) return;
 		watchTimer = setTimeout(async () => {
 			appLog.trace('Folder watch timer tick');
@@ -327,7 +332,9 @@
 
 	// ── Fullscreen ───────────────────────────────────────────────────────────────
 	function toggleFullscreen() {
-		appLog.info('Fullscreen toggle requested', { currentlyFullscreen: !!document.fullscreenElement });
+		appLog.info('Fullscreen toggle requested', {
+			currentlyFullscreen: !!document.fullscreenElement
+		});
 		if (document.fullscreenElement) {
 			document.exitFullscreen();
 		} else {
@@ -344,11 +351,14 @@
 	function resetControlsTimer() {
 		showControls = true;
 		if (controlsTimer) clearTimeout(controlsTimer);
-		appLog.trace('Resetting controls visibility timer', { showSettings });
+		appLog.trace('Resetting controls visibility timer', {
+			hideDelayMs: CONTROLS_HIDE_DELAY_MS,
+			showSettings
+		});
 		controlsTimer = setTimeout(() => {
 			if (!showSettings) showControls = false;
 			appLog.trace('Controls auto-hide timer fired', { showControls });
-		}, 3000);
+		}, CONTROLS_HIDE_DELAY_MS);
 	}
 
 	function handleKey(e: KeyboardEvent) {

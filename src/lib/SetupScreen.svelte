@@ -8,7 +8,11 @@
 		onstart
 	}: {
 		settings: Settings;
-		onstart: (images: ImageEntry[], settings: Settings) => void;
+		onstart: (
+			images: ImageEntry[],
+			settings: Settings,
+			folderHandle: FileSystemDirectoryHandle | null
+		) => void;
 	} = $props();
 
 	let transition: Transition = $state(untrack(() => settings.transition));
@@ -16,10 +20,12 @@
 	let displayDuration: number = $state(untrack(() => settings.displayDuration));
 	let transitionDuration: number = $state(untrack(() => settings.transitionDuration));
 	let blurBackground: boolean = $state(untrack(() => settings.blurBackground));
+	let watchFolderForNewPhotos: boolean = $state(untrack(() => settings.watchFolderForNewPhotos));
 	let error: string = $state('');
 	let loading: boolean = $state(false);
 	let savedHandle: FileSystemDirectoryHandle | null = $state(null);
 	let folderInput: HTMLInputElement | null = $state(null);
+	let supportsDirectoryPicker: boolean = $state(false);
 
 	const IMAGE_TYPES = [
 		'image/jpeg',
@@ -41,6 +47,7 @@
 	}
 
 	onMount(async () => {
+		supportsDirectoryPicker = 'showDirectoryPicker' in window;
 		try {
 			savedHandle = await loadHandle();
 		} catch {
@@ -66,7 +73,18 @@
 			return;
 		}
 		const sorted = sortImages(entries, order);
-		onstart(sorted, { transition, order, displayDuration, transitionDuration, blurBackground });
+		onstart(
+			sorted,
+			{
+				transition,
+				order,
+				displayDuration,
+				transitionDuration,
+				blurBackground,
+				watchFolderForNewPhotos
+			},
+			dirHandle
+		);
 	}
 
 	async function reopenFolder() {
@@ -108,7 +126,18 @@
 			}
 
 			const sorted = sortImages(entries, order);
-			onstart(sorted, { transition, order, displayDuration, transitionDuration, blurBackground });
+			onstart(
+				sorted,
+				{
+					transition,
+					order,
+					displayDuration,
+					transitionDuration,
+					blurBackground,
+					watchFolderForNewPhotos: false
+				},
+				null
+			);
 		} finally {
 			loading = false;
 		}
@@ -339,6 +368,34 @@
 				>
 					<span
 						class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-neutral-950 shadow transition-transform {blurBackground
+							? 'translate-x-5'
+							: 'translate-x-0'}"
+					></span>
+				</button>
+			</div>
+
+			<!-- Watch folder -->
+			<div class="flex items-center justify-between">
+				<div class="space-y-1">
+					<span class="text-xs font-medium tracking-widest text-white/40 uppercase"
+						>Watch folder for new photos</span
+					>
+					{#if !supportsDirectoryPicker}
+						<p class="text-[11px] text-white/35">Requires selecting a folder via the folder picker.</p>
+					{/if}
+				</div>
+				<button
+					aria-label="Toggle watch folder for new photos"
+					onclick={() => (watchFolderForNewPhotos = !watchFolderForNewPhotos)}
+					disabled={!supportsDirectoryPicker}
+					class="relative h-6 w-11 rounded-full transition-colors {watchFolderForNewPhotos
+						? 'bg-white'
+						: 'bg-white/20'} disabled:cursor-not-allowed disabled:opacity-40"
+					role="switch"
+					aria-checked={watchFolderForNewPhotos}
+				>
+					<span
+						class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-neutral-950 shadow transition-transform {watchFolderForNewPhotos
 							? 'translate-x-5'
 							: 'translate-x-0'}"
 					></span>

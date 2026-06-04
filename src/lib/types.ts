@@ -7,6 +7,7 @@ export interface Settings {
 	displayDuration: number; // seconds
 	transitionDuration: number; // seconds
 	blurBackground: boolean;
+	watchFolderForNewPhotos: boolean;
 }
 
 export interface ImageEntry {
@@ -19,5 +20,6 @@ export const DEFAULT_SETTINGS: Settings = {
 	order: 'alphabetical',
 	displayDuration: 6,
 	transitionDuration: 1.5,
-	blurBackground: true
+	blurBackground: true,
+	watchFolderForNewPhotos: false
 };

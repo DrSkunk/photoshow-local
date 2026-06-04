@@ -7,10 +7,12 @@
 	let phase: 'setup' | 'slideshow' = $state('setup');
 	let images: ImageEntry[] = $state([]);
 	let settings: Settings = $state({ ...DEFAULT_SETTINGS });
+	let folderHandle: FileSystemDirectoryHandle | null = $state(null);
 
-	function handleStart(imgs: ImageEntry[], s: Settings) {
+	function handleStart(imgs: ImageEntry[], s: Settings, handle: FileSystemDirectoryHandle | null) {
 		images = imgs;
 		settings = s;
+		folderHandle = handle;
 		phase = 'slideshow';
 	}
 
@@ -26,5 +28,5 @@
 {#if phase === 'setup'}
 	<SetupScreen {settings} onstart={handleStart} />
 {:else}
-	<SlideshowScreen {images} {settings} onexit={handleExit} />
+	<SlideshowScreen {images} {settings} {folderHandle} onexit={handleExit} />
 {/if}

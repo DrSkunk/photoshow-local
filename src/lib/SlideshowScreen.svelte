@@ -62,6 +62,10 @@
 		return /\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(name);
 	}
 
+	function isImageFile(file: File, name: string) {
+		return IMAGE_TYPES.includes(file.type) || !file.type || isImageName(name);
+	}
+
 	function mergeImagesWithCurrentRotation(newEntries: ImageEntry[]) {
 		if (newEntries.length === 0) return;
 		const currentImage = images[currentIndex];
@@ -104,7 +108,8 @@
 			return;
 		}
 		const nextCurrentIndex = images.findIndex((img) => img.name === currentImage.name);
-		currentIndex = nextCurrentIndex >= 0 ? nextCurrentIndex : Math.min(currentIndex, images.length - 1);
+		currentIndex =
+			nextCurrentIndex >= 0 ? nextCurrentIndex : Math.min(currentIndex, images.length - 1);
 	}
 
 	async function scanForNewImages() {
@@ -122,10 +127,14 @@
 				const relativeName = parentPath ? `${parentPath}/${name}` : name;
 				if (handle.kind === 'file') {
 					if (!isImageName(name)) continue;
+					if (knownNames.has(relativeName)) {
+						scannedNames.add(relativeName);
+						continue;
+					}
+					if (pendingNames.has(relativeName)) continue;
 					scannedNames.add(relativeName);
-					if (knownNames.has(relativeName) || pendingNames.has(relativeName)) continue;
 					const file = await handle.getFile();
-					if (IMAGE_TYPES.includes(file.type) || !file.type) {
+					if (isImageFile(file, name)) {
 						const url = URL.createObjectURL(file);
 						watchedImageUrls.add(url);
 						pendingNames.add(relativeName);
@@ -146,13 +155,26 @@
 		}
 	}
 
-	function preloadImage(url: string, targetImg: HTMLImageElement, targetBlur: HTMLImageElement | null) {
+	function preloadImage(
+		url: string,
+		targetImg: HTMLImageElement,
+		targetBlur: HTMLImageElement | null
+	) {
 		return new Promise<boolean>((resolve) => {
-			targetImg.onload = () => resolve(true);
-			targetImg.onerror = () => resolve(false);
+			let settled = false;
+			const finish = (ok: boolean) => {
+				if (settled) return;
+				settled = true;
+				targetImg.onload = null;
+				targetImg.onerror = null;
+				resolve(ok);
+			};
+
+			targetImg.onload = () => finish(true);
+			targetImg.onerror = () => finish(false);
 			targetImg.src = url;
 			if (targetBlur) targetBlur.src = url;
-			if (targetImg.complete && targetImg.naturalWidth > 0) resolve(true);
+			if (targetImg.complete && targetImg.naturalWidth > 0) finish(true);
 		});
 	}
 

@@ -29,6 +29,16 @@
 		'image/bmp'
 	];
 
+	type DirectoryHandleWithPermissionRequest = FileSystemDirectoryHandle & {
+		requestPermission: (descriptor?: { mode?: 'read' | 'readwrite' }) => Promise<PermissionState>;
+	};
+
+	function supportsRequestPermission(
+		handle: FileSystemDirectoryHandle
+	): handle is DirectoryHandleWithPermissionRequest {
+		return 'requestPermission' in handle;
+	}
+
 	onMount(async () => {
 		try {
 			savedHandle = await loadHandle();
@@ -61,10 +71,12 @@
 	async function reopenFolder() {
 		if (!savedHandle) return;
 		try {
-			const permission = await savedHandle.requestPermission({ mode: 'read' });
-			if (permission !== 'granted') {
-				error = 'Permission denied for saved folder.';
-				return;
+			if (supportsRequestPermission(savedHandle)) {
+				const permission = await savedHandle.requestPermission({ mode: 'read' });
+				if (permission !== 'granted') {
+					error = 'Permission denied for saved folder.';
+					return;
+				}
 			}
 			await loadFromHandle(savedHandle);
 		} catch (e: unknown) {

@@ -13,6 +13,7 @@ Uses the [File System Access API](https://developer.mozilla.org/en-US/docs/Web/A
 - **Fullscreen** mode (button or `F` key)
 - **Live settings panel** — change options without stopping the slideshow
 - **Keyboard shortcuts:** `←` / `→` navigate, `Space` pause, `F` fullscreen, `Esc` exit
+- **Installable PWA** with offline support for app shell/assets after first load
 
 ## Developing
 

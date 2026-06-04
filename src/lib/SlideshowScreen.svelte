@@ -5,8 +5,14 @@
 	let {
 		images,
 		settings: initialSettings,
+		folderHandle,
 		onexit
-	}: { images: ImageEntry[]; settings: Settings; onexit: () => void } = $props();
+	}: {
+		images: ImageEntry[];
+		settings: Settings;
+		folderHandle: FileSystemDirectoryHandle | null;
+		onexit: () => void;
+	} = $props();
 
 	// ── Mutable settings (changed live from in-slideshow panel) ─────────────────
 	let transition: Transition = $state(untrack(() => initialSettings.transition));
@@ -14,6 +20,7 @@
 	let displayDuration: number = $state(untrack(() => initialSettings.displayDuration));
 	let transitionDuration: number = $state(untrack(() => initialSettings.transitionDuration));
 	let blurBackground: boolean = $state(untrack(() => initialSettings.blurBackground));
+	let watchFolderForNewPhotos: boolean = $state(untrack(() => initialSettings.watchFolderForNewPhotos));
 
 	// ── Layer state ─────────────────────────────────────────────────────────────
 	let layerA: HTMLDivElement | null = $state(null);
@@ -32,7 +39,69 @@
 
 	let controlsTimer: ReturnType<typeof setTimeout> | null = null;
 	let slideTimer: ReturnType<typeof setTimeout> | null = null;
+	let watchTimer: ReturnType<typeof setTimeout> | null = null;
 	let transitionInProgress = false;
+
+	const IMAGE_TYPES = [
+		'image/jpeg',
+		'image/png',
+		'image/gif',
+		'image/webp',
+		'image/avif',
+		'image/bmp'
+	];
+	const WATCH_INTERVAL_MS = 10000;
+
+	function isImageName(name: string) {
+		return /\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(name);
+	}
+
+	function mergeImagesWithCurrentRotation(newEntries: ImageEntry[]) {
+		if (newEntries.length === 0) return;
+		const currentImage = images[currentIndex];
+		if (order === 'alphabetical') {
+			images = [...images, ...newEntries].sort((a, b) => a.name.localeCompare(b.name));
+		} else if (order === 'reverse') {
+			images = [...images, ...newEntries].sort((a, b) => b.name.localeCompare(a.name));
+		} else {
+			const merged = [...images];
+			for (const entry of newEntries) {
+				const insertAt = Math.floor(Math.random() * (merged.length + 1));
+				merged.splice(insertAt, 0, entry);
+			}
+			images = merged;
+		}
+		if (!currentImage) return;
+		const nextCurrentIndex = images.indexOf(currentImage);
+		if (nextCurrentIndex >= 0) currentIndex = nextCurrentIndex;
+	}
+
+	async function scanForNewImages() {
+		if (!watchFolderForNewPhotos || !folderHandle) return;
+		const knownNames = new Set(images.map((img) => img.name));
+		const newEntries: ImageEntry[] = [];
+		try {
+			for await (const [name, handle] of folderHandle.entries()) {
+				if (handle.kind !== 'file' || knownNames.has(name) || !isImageName(name)) continue;
+				const file = await handle.getFile();
+				if (IMAGE_TYPES.includes(file.type) || isImageName(name)) {
+					newEntries.push({ name, url: URL.createObjectURL(file) });
+				}
+			}
+			mergeImagesWithCurrentRotation(newEntries);
+		} catch {
+			// Folder access may fail due to revoked permissions; keep slideshow running.
+		}
+	}
+
+	function scheduleFolderWatch() {
+		if (watchTimer) clearTimeout(watchTimer);
+		if (!watchFolderForNewPhotos || !folderHandle) return;
+		watchTimer = setTimeout(async () => {
+			await scanForNewImages();
+			scheduleFolderWatch();
+		}, WATCH_INTERVAL_MS);
+	}
 
 	// ── Ken Burns ───────────────────────────────────────────────────────────────
 	function randomBetween(a: number, b: number) {
@@ -241,6 +310,7 @@
 			}
 		}
 		scheduleNext();
+		scheduleFolderWatch();
 		resetControlsTimer();
 		document.addEventListener('fullscreenchange', onFullscreenChange);
 	});
@@ -248,8 +318,15 @@
 	onDestroy(() => {
 		if (slideTimer) clearTimeout(slideTimer);
 		if (controlsTimer) clearTimeout(controlsTimer);
+		if (watchTimer) clearTimeout(watchTimer);
 		document.removeEventListener('fullscreenchange', onFullscreenChange);
 		if (document.fullscreenElement) document.exitFullscreen();
+	});
+
+	$effect(() => {
+		watchFolderForNewPhotos;
+		folderHandle;
+		scheduleFolderWatch();
 	});
 
 	const transitionOptions: { value: Transition; label: string }[] = [
@@ -561,6 +638,34 @@
 					>
 						<span
 							class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-neutral-900 shadow transition-transform {blurBackground
+								? 'translate-x-5'
+								: 'translate-x-0'}"
+						></span>
+					</button>
+				</div>
+
+				<!-- Watch folder -->
+				<div class="flex items-center justify-between">
+					<div class="space-y-1">
+						<span class="text-xs font-medium tracking-widest text-white/40 uppercase"
+							>Watch folder for new photos</span
+						>
+						{#if !folderHandle}
+							<p class="text-[11px] text-white/35">Unavailable for fallback file selection.</p>
+						{/if}
+					</div>
+					<button
+						aria-label="Toggle watch folder for new photos"
+						onclick={() => (watchFolderForNewPhotos = !watchFolderForNewPhotos)}
+						disabled={!folderHandle}
+						class="relative h-6 w-11 rounded-full transition-colors {watchFolderForNewPhotos
+							? 'bg-white'
+							: 'bg-white/20'} disabled:cursor-not-allowed disabled:opacity-40"
+						role="switch"
+						aria-checked={watchFolderForNewPhotos}
+					>
+						<span
+							class="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-neutral-900 shadow transition-transform {watchFolderForNewPhotos
 								? 'translate-x-5'
 								: 'translate-x-0'}"
 						></span>

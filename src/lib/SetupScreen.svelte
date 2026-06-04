@@ -2,6 +2,7 @@
 	import { onMount, untrack } from 'svelte';
 	import type { ImageEntry, Settings, Transition, Order } from './types';
 	import { saveHandle, loadHandle } from './folderMemory';
+	import { appLog } from './logger';
 
 	let {
 		settings,
@@ -49,10 +50,28 @@
 
 	onMount(async () => {
 		supportsDirectoryPicker = 'showDirectoryPicker' in window;
+		appLog.info('Setup screen mounted', { supportsDirectoryPicker });
 		if (!supportsDirectoryPicker) watchFolderForNewPhotos = false;
 		try {
 			savedHandle = await loadHandle();
+			appLog.info('Setup loaded saved handle', {
+				hasSavedHandle: !!savedHandle,
+				folderName: savedHandle?.name ?? null
+			});
+
+			$effect(() => {
+				appLog.info('Setup settings updated', {
+					transition,
+					order,
+					displayDuration,
+					transitionDuration,
+					blurBackground,
+					watchFolderForNewPhotos,
+					crawlSubfolders
+				});
+			});
 		} catch {
+			appLog.warn('Setup could not load saved folder handle');
 			// IndexedDB unavailable; ignore
 		}
 	});
@@ -62,31 +81,67 @@
 		includeSubfolders: boolean,
 		parentPath = ''
 	): Promise<ImageEntry[]> {
+		appLog.debug('Scanning directory for images', {
+			directoryName: dirHandle.name,
+			parentPath,
+			includeSubfolders
+		});
 		const entries: ImageEntry[] = [];
 		for await (const [name, handle] of dirHandle.entries()) {
 			const relativeName = parentPath ? `${parentPath}/${name}` : name;
+			appLog.trace('Inspecting directory entry', {
+				name,
+				relativeName,
+				kind: handle.kind
+			});
 			if (handle.kind === 'file') {
 				const file = await handle.getFile();
 				if (IMAGE_TYPES.includes(file.type) || /\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(name)) {
+					appLog.debug('Adding image file from directory scan', {
+						relativeName,
+						fileType: file.type || 'unknown'
+					});
 					entries.push({ name: relativeName, url: URL.createObjectURL(file) });
 				}
 			} else if (includeSubfolders) {
+				appLog.trace('Descending into subfolder', { relativeName });
 				entries.push(...(await collectDirectoryImages(handle, includeSubfolders, relativeName)));
 			}
 		}
+		appLog.info('Directory scan complete', {
+			directoryName: dirHandle.name,
+			parentPath,
+			imagesFound: entries.length
+		});
 		return entries;
 	}
 
 	async function loadFromHandle(dirHandle: FileSystemDirectoryHandle) {
+		appLog.info('Loading slideshow from folder handle', {
+			folderName: dirHandle.name,
+			order,
+			crawlSubfolders
+		});
 		loading = true;
 		error = '';
 		const entries = await collectDirectoryImages(dirHandle, crawlSubfolders);
 		loading = false;
 		if (entries.length === 0) {
+			appLog.warn('No images found in selected folder', { folderName: dirHandle.name });
 			error = 'No images found in that folder.';
 			return;
 		}
 		const sorted = sortImages(entries, order);
+		appLog.info('Starting slideshow from folder handle', {
+			folderName: dirHandle.name,
+			totalImages: sorted.length,
+			transition,
+			displayDuration,
+			transitionDuration,
+			blurBackground,
+			watchFolderForNewPhotos,
+			crawlSubfolders
+		});
 		onstart(
 			sorted,
 			{
@@ -104,9 +159,14 @@
 
 	async function reopenFolder() {
 		if (!savedHandle) return;
+		appLog.info('Attempting to reopen saved folder', { folderName: savedHandle.name });
 		try {
 			if (supportsRequestPermission(savedHandle)) {
 				const permission = await savedHandle.requestPermission({ mode: 'read' });
+				appLog.info('Permission request result for saved folder', {
+					folderName: savedHandle.name,
+					permission
+				});
 				if (permission !== 'granted') {
 					error = 'Permission denied for saved folder.';
 					return;
@@ -115,6 +175,10 @@
 			await loadFromHandle(savedHandle);
 		} catch (e: unknown) {
 			const err = e as { message?: string };
+			appLog.error('Failed to reopen saved folder', {
+				folderName: savedHandle.name,
+				error: err?.message ?? err
+			});
 			error = err?.message ?? 'Failed to reopen folder.';
 		}
 	}
@@ -123,6 +187,10 @@
 		const input = event.currentTarget as HTMLInputElement | null;
 		const files = input?.files;
 		if (!files || files.length === 0) return;
+		appLog.info('Folder selected via file input', {
+			fileCount: files.length,
+			crawlSubfolders
+		});
 
 		loading = true;
 		error = '';
@@ -140,16 +208,32 @@
 						: filename
 					: filename;
 				if (IMAGE_TYPES.includes(file.type) || /\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(filename)) {
+					appLog.trace('Adding image from file input', {
+						filename,
+						entryName,
+						fileType: file.type || 'unknown'
+					});
 					entries.push({ name: entryName, url: URL.createObjectURL(file) });
 				}
 			}
 
 			if (entries.length === 0) {
+				appLog.warn('No images found from file input selection');
 				error = 'No images found in that folder.';
 				return;
 			}
 
 			const sorted = sortImages(entries, order);
+			appLog.info('Starting slideshow from file input selection', {
+				totalImages: sorted.length,
+				transition,
+				order,
+				displayDuration,
+				transitionDuration,
+				blurBackground,
+				watchFolderForNewPhotos,
+				crawlSubfolders
+			});
 			onstart(
 				sorted,
 				{
@@ -165,12 +249,15 @@
 			);
 		} finally {
 			loading = false;
+			appLog.debug('Folder file input handling complete', { loading });
 		}
 	}
 
 	async function pickFolder() {
+		appLog.info('Pick folder requested', { supportsDirectoryPicker });
 		error = '';
 		if (!('showDirectoryPicker' in window)) {
+			appLog.warn('Directory picker unsupported; using file input fallback');
 			folderInput?.click();
 			return;
 		}
@@ -178,17 +265,26 @@
 			const dirHandle = await (
 				window as { showDirectoryPicker: (opts: object) => Promise<FileSystemDirectoryHandle> }
 			).showDirectoryPicker({ mode: 'read' });
-			await saveHandle(dirHandle).catch(() => {});
+			appLog.info('Directory picker returned handle', { folderName: dirHandle.name });
+			await saveHandle(dirHandle).catch((saveError: unknown) => {
+				appLog.warn('Failed to persist selected folder handle', { saveError });
+			});
 			savedHandle = dirHandle;
 			await loadFromHandle(dirHandle);
 		} catch (e: unknown) {
 			loading = false;
 			const err = e as { name?: string; message?: string };
-			if (err?.name !== 'AbortError') error = err?.message ?? 'Failed to open folder.';
+			if (err?.name !== 'AbortError') {
+				appLog.error('Directory picker failed', { error: err?.message ?? err });
+				error = err?.message ?? 'Failed to open folder.';
+			} else {
+				appLog.debug('Directory picker aborted by user');
+			}
 		}
 	}
 
 	function sortImages(imgs: ImageEntry[], ord: Order): ImageEntry[] {
+		appLog.debug('Sorting images', { imageCount: imgs.length, order: ord });
 		const copy = [...imgs];
 		if (ord === 'alphabetical') copy.sort((a, b) => a.name.localeCompare(b.name));
 		else if (ord === 'reverse') copy.sort((a, b) => b.name.localeCompare(a.name));
@@ -198,6 +294,11 @@
 				[copy[i], copy[j]] = [copy[j], copy[i]];
 			}
 		}
+		appLog.info('Image sorting complete', {
+			order: ord,
+			firstImage: copy[0]?.name ?? null,
+			lastImage: copy[copy.length - 1]?.name ?? null
+		});
 		return copy;
 	}
 
